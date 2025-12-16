@@ -1,0 +1,9 @@
+# Python cache (anywhere)
+**/__pycache__/
+*.py[cod]
+
+# macOS files (anywhere)
+**/.DS_Store
+
+# Data directories (anywhere, nested)
+**/data/

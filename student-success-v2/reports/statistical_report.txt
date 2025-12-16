@@ -1,0 +1,40 @@
+================================================================================
+STATISTICAL ANALYSIS REPORT
+Generated: 2025-12-16 07:38:31
+================================================================================
+
+Q7: MATH TRACK PERFORMANCE COMPARISON
+--------------------------------------------------
+
+Statistical Test: Kruskal-Wallis H-test
+H-statistic: 258.6948
+p-value: 0.000000
+Alpha level: 0.05
+
+Conclusion: REJECT null hypothesis
+Interpretation: There IS a statistically significant difference in 
+academic performance across different math tracks.
+
+
+Q8: COLLEGE ALGEBRA TRACK SUCCESS IN COMPUTER SCIENCE
+--------------------------------------------------
+
+Total CS Students Analyzed: 4470
+College Algebra CS Students: 4470
+College Algebra Success Rate: 63.8%
+
+Mann-Whitney U Test p-value: 0.000000
+
+Conclusion:
+  College Algebra students CAN succeed in Computer Science.
+  However, additional support is recommended to maximize success rates.
+
+
+ACADEMIC POLICY REFERENCE
+--------------------------------------------------
+• Academic Probation: CGPA < 2.0 at end of any regular semester
+• Dismissal: Two consecutive semesters on probation without GPA ≥ 2.0
+• Dean's List: Semester GPA ≥ 3.5
+• Standard Graduation: 8 semesters (4 years)
+
+================================================================================
