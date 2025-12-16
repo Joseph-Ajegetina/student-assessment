@@ -115,17 +115,22 @@ class DataLoader:
     def create_master_student_table(self) -> pd.DataFrame:
         """
         Create master table with ONE ROW per UNIQUE student.
-        This is the key function for proper analysis.
+        Starts from CGPA data (actual enrolled students only).
         """
         print("\n  Creating master student table (one row per unique student)...")
 
-        if 'application' not in self.datasets:
-            raise ValueError("Application data required for master table")
+        if 'cgpa' not in self.datasets:
+            raise ValueError("CGPA data required for master table (contains actual enrolled students)")
 
-        # Start with unique students from application
-        master = self.datasets['application'].drop_duplicates('student_id').copy()
+        # Start with unique students from CGPA (actual enrolled students)
+        cgpa = self.datasets['cgpa'].copy()
+
+        # Get unique students with their latest status
+        cgpa_sorted = cgpa.sort_values(['student_id', 'Academic Year', 'Semester/Year'])
+        master = cgpa_sorted.groupby('student_id').last().reset_index()
+
         initial_count = len(master)
-        print(f"    Starting with {initial_count:,} unique students from application data")
+        print(f"    Starting with {initial_count:,} unique ENROLLED students from CGPA data")
 
         # === Extract Application Features ===
         master = self._extract_application_features(master)
@@ -150,44 +155,63 @@ class DataLoader:
 
         return master
 
-    def _extract_application_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Extract and clean features from application data."""
-        # Gender
-        if 'Gender' in df.columns:
-            df['is_female'] = (df['Gender'].str.upper().isin(['F', 'FEMALE'])).astype(int)
+    def _extract_application_features(self, master: pd.DataFrame) -> pd.DataFrame:
+        """Merge and extract features from application data."""
 
-        # International status
-        if 'Nationality' in df.columns:
-            df['is_international'] = (~df['Nationality'].isin(['Country0', 'Ghana'])).astype(int)
+        # Master already has some columns from CGPA (Gender, Nationality, etc.)
+        # Extract what we have from master first
+        if 'Gender' in master.columns:
+            master['is_female'] = (master['Gender'].str.upper().isin(['F', 'FEMALE'])).astype(int)
 
-        # Financial aid
-        aid_col = 'Extra question: Do you Need Financial Aid?'
-        if aid_col in df.columns:
-            df['needs_financial_aid'] = (df[aid_col].str.lower() == 'yes').astype(int)
+        if 'Nationality' in master.columns:
+            master['is_international'] = (~master['Nationality'].isin(['Country0', 'Ghana'])).astype(int)
 
-        # Disadvantaged background
-        if 'Disadvantaged background' in df.columns:
-            df['is_disadvantaged'] = df['Disadvantaged background'].notna().astype(int)
+        # Merge additional features from application data if available
+        if 'application' in self.datasets:
+            app = self.datasets['application'].copy()
+            app = app.drop_duplicates('student_id')
 
-        # Previous application
-        prev_col = 'Extra question: Have you applied to Ashesi before? If "yes" indicate the year.'
-        if prev_col in df.columns:
-            df['has_previous_application'] = (~df[prev_col].isin(['No', 'NaN', np.nan, ''])).astype(int)
+            # Select columns to merge
+            app_features = ['student_id']
 
-        # Intended major
-        if 'Offer course name' in df.columns:
-            major = df['Offer course name'].fillna('')
-            df['intended_cs'] = major.str.contains('Computer Science', case=False, na=False).astype(int)
-            df['intended_engineering'] = major.str.contains('Engineering', case=False, na=False).astype(int)
-            df['intended_business'] = major.str.contains('Business', case=False, na=False).astype(int)
-            df['intended_mis'] = major.str.contains('MIS|Information Systems', case=False, na=False).astype(int)
+            # Financial aid
+            aid_col = 'Extra question: Do you Need Financial Aid?'
+            if aid_col in app.columns:
+                app['needs_financial_aid'] = (app[aid_col].str.lower() == 'yes').astype(int)
+                app_features.append('needs_financial_aid')
 
-        # Exam type from application
-        exam_col = 'Extra question: Type of Exam'
-        if exam_col in df.columns:
-            df['exam_type_application'] = df[exam_col].fillna('Unknown')
+            # Disadvantaged background
+            if 'Disadvantaged background' in app.columns:
+                app['is_disadvantaged'] = app['Disadvantaged background'].notna().astype(int)
+                app_features.append('is_disadvantaged')
 
-        return df
+            # Previous application
+            prev_col = 'Extra question: Have you applied to Ashesi before? If "yes" indicate the year.'
+            if prev_col in app.columns:
+                app['has_previous_application'] = (~app[prev_col].isin(['No', 'NaN', np.nan, ''])).astype(int)
+                app_features.append('has_previous_application')
+
+            # Intended major
+            if 'Offer course name' in app.columns:
+                major = app['Offer course name'].fillna('')
+                app['intended_cs'] = major.str.contains('Computer Science', case=False, na=False).astype(int)
+                app['intended_engineering'] = major.str.contains('Engineering', case=False, na=False).astype(int)
+                app['intended_business'] = major.str.contains('Business', case=False, na=False).astype(int)
+                app['intended_mis'] = major.str.contains('MIS|Information Systems', case=False, na=False).astype(int)
+                app_features.extend(['intended_cs', 'intended_engineering', 'intended_business', 'intended_mis'])
+
+            # Exam type from application
+            exam_col = 'Extra question: Type of Exam'
+            if exam_col in app.columns:
+                app['exam_type_application'] = app[exam_col].fillna('Unknown')
+                app_features.append('exam_type_application')
+
+            # Merge
+            if len(app_features) > 1:
+                master = master.merge(app[app_features], on='student_id', how='left')
+                print(f"    Merged application features for {master['student_id'].nunique():,} students")
+
+        return master
 
     def _merge_hs_exam_data(self, master: pd.DataFrame) -> pd.DataFrame:
         """Merge high school exam data - one row per student."""
@@ -209,8 +233,7 @@ class DataLoader:
             # Extract standardized scores
             df_agg = self._extract_exam_scores(df_agg, exam_name)
             hs_records.append(df_agg[['student_id', 'exam_source', 'hs_math_score',
-                                      'hs_english_score', 'hs_science_score', 'hs_aggregate',
-                                      'math_placement_raw']].copy())
+                                      'hs_english_score', 'hs_science_score', 'hs_aggregate']].copy())
 
         if hs_records:
             hs_combined = pd.concat(hs_records, ignore_index=True)
@@ -228,7 +251,6 @@ class DataLoader:
         df['hs_english_score'] = np.nan
         df['hs_science_score'] = np.nan
         df['hs_aggregate'] = np.nan
-        df['math_placement_raw'] = None
 
         if exam_type == 'wassce':
             # WASSCE grades (A1-F9, lower is better)
@@ -240,12 +262,6 @@ class DataLoader:
                 df['hs_science_score'] = df['Integrated Science'].apply(self._convert_wassce_to_score)
             if 'Total Aggregate' in df.columns:
                 df['hs_aggregate'] = pd.to_numeric(df['Total Aggregate'], errors='coerce')
-
-            # CRITICAL: Extract actual math placement from WASSCE data
-            placement_cols = ['Ashesi Actual Math Placement', 'Auto WASSCE Ashesi Math Placement']
-            for col in placement_cols:
-                if col in df.columns:
-                    df['math_placement_raw'] = df[col].fillna(df.get('math_placement_raw'))
 
         elif exam_type == 'ib':
             # IB scores (1-7, higher is better)
@@ -342,41 +358,72 @@ class DataLoader:
 
     def _add_math_track(self, master: pd.DataFrame) -> pd.DataFrame:
         """
-        Add math track using ACTUAL placement columns from data.
-        Priority: 1) Actual placement from WASSCE 2) Inferred from scores
+        Add math track detected from transcript data (actual course enrollment).
+        Looks at which math course the student first enrolled in.
         """
-        print("    Adding math track...")
+        print("    Adding math track (from transcript course enrollment)...")
 
         # Initialize
         master['math_track'] = 'Unknown'
         master['math_track_encoded'] = np.nan
 
-        # Method 1: Use actual placement from WASSCE data if available
-        if 'math_placement_raw' in master.columns:
-            actual_placement = master['math_placement_raw'].notna()
-            placement_values = master.loc[actual_placement, 'math_placement_raw'].str.lower()
+        if 'transcript' not in self.datasets:
+            print("      No transcript data available for math track detection")
+            return master
 
-            # Map placement values
-            master.loc[actual_placement & placement_values.str.contains('calculus', na=False), 'math_track'] = 'Calculus'
-            master.loc[actual_placement & placement_values.str.contains('pre-calc|precalc', na=False), 'math_track'] = 'Pre-Calculus'
-            master.loc[actual_placement & placement_values.str.contains('algebra', na=False), 'math_track'] = 'College Algebra'
+        transcript = self.datasets['transcript'].copy()
+        if 'Course Name' not in transcript.columns or 'student_id' not in transcript.columns:
+            print("      Required columns not found in transcript")
+            return master
 
-            actual_count = (master['math_track'] != 'Unknown').sum()
-            print(f"      From actual placement: {actual_count:,} students")
+        # Define math track course patterns
+        calculus_patterns = ['Calculus', 'MATH142']
+        precalc_patterns = ['Pre-Calculus', 'Pre Calculus', 'PreCalculus', 'MATH141']
+        algebra_patterns = ['College Algebra', 'Algebra', 'MATH140']
 
-        # Method 2: Infer from math scores for remaining students
-        unknown_mask = master['math_track'] == 'Unknown'
-        if 'hs_math_score' in master.columns and unknown_mask.any():
-            scores = master.loc[unknown_mask, 'hs_math_score']
-            valid_scores = scores.notna()
+        def identify_track(course_name):
+            course = str(course_name)
+            # Check pre-calc first (to avoid matching 'Calculus' in 'Pre-Calculus')
+            for pattern in precalc_patterns:
+                if pattern.lower() in course.lower():
+                    return 'Pre-Calculus'
+            for pattern in calculus_patterns:
+                if pattern.lower() in course.lower():
+                    return 'Calculus'
+            for pattern in algebra_patterns:
+                if pattern.lower() in course.lower():
+                    return 'College Algebra'
+            return None
 
-            # High score -> Calculus, Medium -> Pre-Calc, Low -> Algebra
-            master.loc[unknown_mask & (scores >= 80), 'math_track'] = 'Calculus'
-            master.loc[unknown_mask & (scores >= 60) & (scores < 80), 'math_track'] = 'Pre-Calculus'
-            master.loc[unknown_mask & (scores < 60) & valid_scores, 'math_track'] = 'College Algebra'
+        # Detect math track from course names
+        transcript['math_track_detected'] = transcript['Course Name'].apply(identify_track)
 
-            inferred_count = (master['math_track'] != 'Unknown').sum() - actual_count if 'actual_count' in dir() else 0
-            print(f"      Inferred from scores: {inferred_count:,} students")
+        # Filter to math courses only
+        math_courses = transcript[transcript['math_track_detected'].notna()].copy()
+
+        if len(math_courses) == 0:
+            print("      No math courses found in transcript")
+            return master
+
+        # Extract semester number for sorting
+        if 'Semester/Year' in math_courses.columns:
+            math_courses['semester_num'] = math_courses['Semester/Year'].str.extract(r'(\d+)').astype(float)
+        else:
+            math_courses['semester_num'] = 1
+
+        # Get the first (earliest) math course per student
+        first_math = math_courses.sort_values('semester_num').groupby('student_id').first().reset_index()
+        first_math = first_math[['student_id', 'math_track_detected']].rename(
+            columns={'math_track_detected': 'detected_track'}
+        )
+
+        # Merge with master
+        master = master.merge(first_math, on='student_id', how='left')
+        master.loc[master['detected_track'].notna(), 'math_track'] = master['detected_track']
+        master = master.drop(columns=['detected_track'], errors='ignore')
+
+        detected_count = (master['math_track'] != 'Unknown').sum()
+        print(f"      Detected from transcript: {detected_count:,} students")
 
         # Encode math track
         track_encoding = {'Calculus': 3, 'Pre-Calculus': 2, 'College Algebra': 1, 'Unknown': 0}
@@ -400,15 +447,16 @@ class DataLoader:
         # Parse semester info
         if 'Semester/Year' in cgpa.columns:
             cgpa['semester_num'] = cgpa['Semester/Year'].str.extract(r'Semester (\d)').astype(float)
+            # Flag regular semesters (1 and 2) vs summer (3)
+            cgpa['is_regular_semester'] = cgpa['semester_num'].isin([1, 2])
 
         if 'Academic Year' in cgpa.columns and 'Admission Year' in cgpa.columns:
             cgpa['academic_start'] = cgpa['Academic Year'].str.extract(r'(\d{4})').astype(float)
             cgpa['admission_start'] = cgpa['Admission Year'].str.extract(r'(\d{4})').astype(float)
             cgpa['year_num'] = cgpa['academic_start'] - cgpa['admission_start'] + 1
 
-        # Calculate semester order
-        if 'year_num' in cgpa.columns and 'semester_num' in cgpa.columns:
-            cgpa['semester_order'] = (cgpa['year_num'] - 1) * 2 + cgpa['semester_num']
+        # Sort for proper ordering
+        cgpa = cgpa.sort_values(['student_id', 'academic_start', 'semester_num'])
 
         # Aggregate per student
         agg_dict = {}
@@ -416,8 +464,6 @@ class DataLoader:
             agg_dict['CGPA'] = ['last', 'min', 'max', 'mean']
         if 'GPA' in cgpa.columns:
             agg_dict['GPA'] = ['mean', 'std', 'min', 'max']
-        if 'semester_order' in cgpa.columns:
-            agg_dict['semester_order'] = 'max'
         if 'Program' in cgpa.columns:
             agg_dict['Program'] = 'last'
         if 'Student Status' in cgpa.columns:
@@ -432,7 +478,6 @@ class DataLoader:
             rename_map = {
                 'CGPA_last': 'final_cgpa', 'CGPA_min': 'min_cgpa', 'CGPA_max': 'max_cgpa', 'CGPA_mean': 'avg_cgpa',
                 'GPA_mean': 'avg_gpa', 'GPA_std': 'gpa_std', 'GPA_min': 'min_gpa', 'GPA_max': 'max_gpa',
-                'semester_order_max': 'total_semesters',
                 'Program_last': 'final_program',
                 'Student Status_last': 'student_status'
             }
@@ -440,6 +485,18 @@ class DataLoader:
 
             master = master.merge(perf, on='student_id', how='left')
             print(f"    Merged academic performance for {perf['student_id'].nunique():,} students")
+
+        # Count semesters separately: total, regular only, summer only
+        semester_counts = cgpa.groupby('student_id').agg({
+            'semester_num': 'count',  # Total semesters
+            'is_regular_semester': 'sum',  # Regular semesters only (for extended grad calc)
+            'year_num': 'max'  # Number of academic years
+        }).reset_index()
+        semester_counts.columns = ['student_id', 'total_semesters', 'regular_semesters', 'academic_years']
+        semester_counts['summer_semesters'] = semester_counts['total_semesters'] - semester_counts['regular_semesters']
+
+        master = master.merge(semester_counts, on='student_id', how='left')
+        print(f"    Added semester counts (regular vs summer)")
 
         # Year 1 specific features
         if 'year_num' in cgpa.columns:
@@ -510,9 +567,13 @@ class DataLoader:
         if 'final_cgpa' in master.columns and 'is_graduated' in master.columns:
             master['major_success'] = ((master['final_cgpa'] >= 3.0) & (master['is_graduated'] == 1)).astype(int)
 
-        # Target: Extended graduation (> 8 semesters)
-        if 'total_semesters' in master.columns:
-            master['extended_graduation'] = (master['total_semesters'] > 8).astype(int)
+        # Target: Extended graduation (> 4 academic years)
+        # Uses academic_years, NOT total_semesters (summer semesters don't count)
+        if 'academic_years' in master.columns:
+            master['extended_graduation'] = (master['academic_years'] > 4).astype(int)
+        elif 'regular_semesters' in master.columns:
+            # Fallback: > 8 regular semesters
+            master['extended_graduation'] = (master['regular_semesters'] > 8).astype(int)
 
         # CS major flag
         if 'final_program' in master.columns:
