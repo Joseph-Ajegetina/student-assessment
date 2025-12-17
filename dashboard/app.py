@@ -132,6 +132,17 @@ def load_full_features():
         return None
 
 @st.cache_data(ttl=3600)
+def load_cluster_data():
+    """Load student cluster assignments from unsupervised learning"""
+    try:
+        path = PROCESSED_DIR / 'student_clusters.csv'
+        if path.exists():
+            return pd.read_csv(path)
+        return None
+    except:
+        return None
+
+@st.cache_data(ttl=3600)
 def load_model_results():
     """Load all model results from CSV files"""
     results = {}
@@ -142,6 +153,81 @@ def load_model_results():
             except:
                 pass
     return results
+
+@st.cache_resource
+def load_trained_models():
+    """Load trained ML models for predictions"""
+    models = {}
+
+    try:
+        import joblib
+
+        # Load RQ1 model (First-Year Struggle)
+        rq1_model_path = MODELS_DIR / 'rq1_y1_struggle_model.joblib'
+        rq1_preprocessor_path = MODELS_DIR / 'rq1_preprocessor.joblib'
+        rq1_metadata_path = MODELS_DIR / 'rq1_metadata.json'
+
+        if rq1_model_path.exists():
+            models['rq1_struggle'] = {
+                'model': joblib.load(rq1_model_path),
+                'preprocessor': joblib.load(rq1_preprocessor_path) if rq1_preprocessor_path.exists() else None,
+                'metadata': json.load(open(rq1_metadata_path)) if rq1_metadata_path.exists() else {}
+            }
+
+        # Load RQ2 model (AJC Case)
+        rq2_model_path = MODELS_DIR / 'rq2_ajc_case_model.joblib'
+        rq2_preprocessor_path = MODELS_DIR / 'rq2_preprocessor.joblib'
+        rq2_metadata_path = MODELS_DIR / 'rq2_metadata.json'
+
+        if rq2_model_path.exists():
+            models['rq2_ajc'] = {
+                'model': joblib.load(rq2_model_path),
+                'preprocessor': joblib.load(rq2_preprocessor_path) if rq2_preprocessor_path.exists() else None,
+                'metadata': json.load(open(rq2_metadata_path)) if rq2_metadata_path.exists() else {}
+            }
+
+        # Load RQ3 model (Major Success)
+        rq3_model_path = MODELS_DIR / 'rq3_major_success_model.joblib'
+        rq3_preprocessor_path = MODELS_DIR / 'rq3_preprocessor.joblib'
+        rq3_metadata_path = MODELS_DIR / 'rq3_metadata.json'
+
+        if rq3_model_path.exists():
+            models['rq3_success'] = {
+                'model': joblib.load(rq3_model_path),
+                'preprocessor': joblib.load(rq3_preprocessor_path) if rq3_preprocessor_path.exists() else None,
+                'metadata': json.load(open(rq3_metadata_path)) if rq3_metadata_path.exists() else {}
+            }
+
+        # Load RQ4 model (Probation)
+        rq4_model_path = MODELS_DIR / 'rq4_probation_model.joblib'
+        rq4_preprocessor_path = MODELS_DIR / 'rq4_preprocessor.joblib'
+        rq4_metadata_path = MODELS_DIR / 'rq4_metadata.json'
+
+        if rq4_model_path.exists():
+            models['rq4_probation'] = {
+                'model': joblib.load(rq4_model_path),
+                'preprocessor': joblib.load(rq4_preprocessor_path) if rq4_preprocessor_path.exists() else None,
+                'metadata': json.load(open(rq4_metadata_path)) if rq4_metadata_path.exists() else {}
+            }
+
+        # Load RQ9 model (Extended Graduation)
+        rq9_model_path = MODELS_DIR / 'rq9_extended_graduation_model.joblib'
+        rq9_preprocessor_path = MODELS_DIR / 'rq9_preprocessor.joblib'
+        rq9_metadata_path = MODELS_DIR / 'rq9_metadata.json'
+
+        if rq9_model_path.exists():
+            models['rq9_extended'] = {
+                'model': joblib.load(rq9_model_path),
+                'preprocessor': joblib.load(rq9_preprocessor_path) if rq9_preprocessor_path.exists() else None,
+                'metadata': json.load(open(rq9_metadata_path)) if rq9_metadata_path.exists() else {}
+            }
+
+    except ImportError:
+        pass
+    except Exception as e:
+        pass
+
+    return models
 
 @st.cache_resource
 def load_models():
@@ -177,8 +263,10 @@ class DashboardApp:
     def __init__(self):
         self.master_df = load_master_data()
         self.full_features = load_full_features()
+        self.cluster_data = load_cluster_data()
         self.model_results = load_model_results()
         self.models = load_models()
+        self.trained_models = load_trained_models()
         self._show_loading_status()
 
     def _show_loading_status(self):
@@ -195,10 +283,14 @@ class DashboardApp:
         else:
             st.sidebar.error("❌ Data not loaded")
 
-        if self.model_results:
-            st.sidebar.info(f"✓ {len(self.model_results)} result files loaded")
-        if self.models:
-            st.sidebar.info(f"✓ {len(self.models)} models loaded")
+        # if self.cluster_data is not None:
+        #     st.sidebar.info(f"✓ {len(self.cluster_data):,} students with clusters")
+        # if self.model_results:
+        #     st.sidebar.info(f"✓ {len(self.model_results)} result files loaded")
+        # if self.trained_models:
+        #     st.sidebar.success(f"✓ {len(self.trained_models)} ML models ready")
+        # if self.models:
+        #     st.sidebar.info(f"✓ {len(self.models)} models loaded")
 
     def run(self):
         """Run the dashboard"""
@@ -710,51 +802,186 @@ class DashboardApp:
     # STUDENT LOOKUP PAGE
     # ========================================================================
     def show_student_lookup(self):
-        st.header("🔍 Student Lookup")
+        st.header("🔍 Student Lookup & Browser")
 
-        search_method = st.radio("Search by:", ["Student ID", "Year Group"], horizontal=True)
-        student = None
+        # Filters in sidebar-style columns
+        st.subheader("🔎 Filter Students")
 
-        if search_method == "Student ID":
-            student_id = st.text_input("Enter Student ID:")
-            if student_id:
-                matches = self.master_df[self.master_df['student_id'].astype(str).str.upper().str.contains(student_id.upper(), na=False)]
-                if len(matches) == 0:
-                    st.warning(f"No student found matching '{student_id}'")
-                elif len(matches) == 1:
-                    student = matches.iloc[0]
-                else:
-                    selected_id = st.selectbox(f"Found {len(matches)} matches:", matches['student_id'].tolist())
-                    student = matches[matches['student_id'] == selected_id].iloc[0]
-        else:
-            yg_col = self.get_yeargroup_column()
-            if yg_col:
-                years = sorted(self.master_df[yg_col].dropna().unique())
-                selected_year = st.selectbox("Year Group:", years)
-                year_students = self.master_df[self.master_df[yg_col] == selected_year]
-                selected_id = st.selectbox(f"Students in {selected_year}:", year_students['student_id'].tolist())
-                student = year_students[year_students['student_id'] == selected_id].iloc[0]
+        col1, col2, col3, col4 = st.columns(4)
 
-        if student is not None:
+        # Year Group Filter
+        yg_col = self.get_yeargroup_column()
+        with col1:
+            if yg_col and yg_col in self.master_df.columns:
+                years = ['All'] + sorted([int(y) for y in self.master_df[yg_col].dropna().unique()])
+                selected_year = st.selectbox("Year Group", years)
+            else:
+                selected_year = 'All'
+
+        # Program Filter
+        program_col = self.get_program_column()
+        with col2:
+            if program_col and program_col in self.master_df.columns:
+                programs = ['All'] + sorted(self.master_df[program_col].dropna().unique().tolist())
+                selected_program = st.selectbox("Program", programs)
+            else:
+                selected_program = 'All'
+
+        # Math Track Filter
+        with col3:
+            if 'math_track' in self.master_df.columns:
+                tracks = ['All'] + sorted(self.master_df['math_track'].dropna().unique().tolist())
+                selected_track = st.selectbox("Math Track", tracks)
+            else:
+                selected_track = 'All'
+
+        # Status Filter
+        with col4:
+            status_options = ['All', 'Graduated', 'Active', 'Other']
+            selected_status = st.selectbox("Status", status_options)
+
+        # Apply filters
+        filtered_df = self.master_df.copy()
+
+        if selected_year != 'All' and yg_col:
+            filtered_df = filtered_df[filtered_df[yg_col] == selected_year]
+
+        if selected_program != 'All' and program_col:
+            filtered_df = filtered_df[filtered_df[program_col] == selected_program]
+
+        if selected_track != 'All' and 'math_track' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['math_track'] == selected_track]
+
+        if selected_status != 'All':
+            if selected_status == 'Graduated' and 'is_graduated' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['is_graduated'] == 1]
+            elif selected_status == 'Active' and 'is_active' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['is_active'] == 1]
+            elif selected_status == 'Other':
+                if 'is_graduated' in filtered_df.columns and 'is_active' in filtered_df.columns:
+                    filtered_df = filtered_df[(filtered_df['is_graduated'] != 1) & (filtered_df['is_active'] != 1)]
+
+        # Search box
+        search_term = st.text_input("🔍 Search by Student ID:", placeholder="Enter partial or full student ID...")
+        if search_term:
+            filtered_df = filtered_df[filtered_df['student_id'].astype(str).str.upper().str.contains(search_term.upper(), na=False)]
+
+        st.markdown(f"**Showing {len(filtered_df):,} students** (out of {len(self.master_df):,} total)")
+
+        # Student table
+        st.markdown("---")
+        st.subheader("📋 Student List")
+
+        # Select columns to display
+        display_cols = ['student_id']
+        if yg_col and yg_col in filtered_df.columns:
+            display_cols.append(yg_col)
+        if program_col and program_col in filtered_df.columns:
+            display_cols.append(program_col)
+        for col in ['Gender', 'math_track', 'final_cgpa', 'is_graduated', 'is_active']:
+            if col in filtered_df.columns:
+                display_cols.append(col)
+
+        # Show paginated table
+        if len(filtered_df) > 0:
+            # Limit display for performance
+            max_display = 100
+            if len(filtered_df) > max_display:
+                st.info(f"Showing first {max_display} students. Use filters to narrow down.")
+                display_df = filtered_df[display_cols].head(max_display)
+            else:
+                display_df = filtered_df[display_cols]
+
+            # Round CGPA for display
+            if 'final_cgpa' in display_df.columns:
+                display_df = display_df.copy()
+                display_df['final_cgpa'] = display_df['final_cgpa'].round(2)
+
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+            # Student detail selector
             st.markdown("---")
-            status = "🟢 Graduated" if student.get('is_graduated', False) else "🔵 Active" if student.get('is_active', False) else "⚪ Unknown"
-            st.subheader(f"📋 {student['student_id']} {status}")
+            st.subheader("👤 Student Details")
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown("**Demographics**")
-                st.write(f"Gender: {student.get('Gender', 'N/A')}")
-                st.write(f"International: {'Yes' if student.get('is_international', 0) else 'No'}")
-            with col2:
-                st.markdown("**Academic**")
-                st.write(f"Program: {student.get(self.get_program_column(), 'N/A') if self.get_program_column() else 'N/A'}")
-                st.write(f"Math Track: {student.get('math_track', 'N/A')}")
-            with col3:
-                st.markdown("**Performance**")
-                if pd.notna(student.get('final_cgpa')):
-                    st.write(f"Final CGPA: {student['final_cgpa']:.2f}")
-                if pd.notna(student.get('total_semesters')):
-                    st.write(f"Semesters: {int(student['total_semesters'])}")
+            student_ids = filtered_df['student_id'].tolist()
+            if len(student_ids) > 0:
+                selected_id = st.selectbox(
+                    "Select a student to view details:",
+                    student_ids,
+                    key="student_detail_select"
+                )
+
+                if selected_id:
+                    student = filtered_df[filtered_df['student_id'] == selected_id].iloc[0]
+
+                    # Status badge
+                    if student.get('is_graduated', 0) == 1:
+                        status = "🟢 Graduated"
+                    elif student.get('is_active', 0) == 1:
+                        status = "🔵 Active"
+                    elif student.get('is_withdrawn', 0) == 1:
+                        status = "🟡 Withdrawn"
+                    elif student.get('is_dismissed', 0) == 1:
+                        status = "🔴 Dismissed"
+                    else:
+                        status = "⚪ Unknown"
+
+                    st.markdown(f"### {selected_id} {status}")
+
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.markdown("**📝 Demographics**")
+                        st.write(f"• Gender: {student.get('Gender', 'N/A')}")
+                        st.write(f"• International: {'Yes' if student.get('is_international', 0) == 1 else 'No'}")
+                        if yg_col and pd.notna(student.get(yg_col)):
+                            st.write(f"• Year Group: {int(student[yg_col])}")
+
+                    with col2:
+                        st.markdown("**🎓 Academic Info**")
+                        if program_col:
+                            st.write(f"• Program: {student.get(program_col, 'N/A')}")
+                        st.write(f"• Math Track: {student.get('math_track', 'N/A')}")
+                        if pd.notna(student.get('first_math_grade')):
+                            st.write(f"• First Math Grade: {student.get('first_math_grade', 'N/A')}")
+
+                    with col3:
+                        st.markdown("**📊 Performance**")
+                        if pd.notna(student.get('final_cgpa')):
+                            cgpa = student['final_cgpa']
+                            cgpa_color = "🟢" if cgpa >= 3.0 else "🟡" if cgpa >= 2.0 else "🔴"
+                            st.write(f"• Final CGPA: {cgpa_color} {cgpa:.2f}")
+                        if pd.notna(student.get('total_semesters')):
+                            st.write(f"• Total Semesters: {int(student['total_semesters'])}")
+                        if pd.notna(student.get('academic_years')):
+                            st.write(f"• Academic Years: {int(student['academic_years'])}")
+
+                    # Risk indicators
+                    st.markdown("---")
+                    st.markdown("**⚠️ Risk Indicators**")
+                    risk_cols = st.columns(5)
+
+                    risk_indicators = [
+                        ('first_year_struggle', 'Y1 Struggle'),
+                        ('has_ajc_case', 'AJC Case'),
+                        ('major_success', 'Major Success'),
+                        ('extended_graduation', 'Extended Grad'),
+                        ('ever_on_probation', 'Ever Probation')
+                    ]
+
+                    for i, (col_name, label) in enumerate(risk_indicators):
+                        with risk_cols[i]:
+                            if col_name in student.index and pd.notna(student[col_name]):
+                                val = int(student[col_name])
+                                if col_name == 'major_success':
+                                    icon = "🟢 Yes" if val == 1 else "🔴 No"
+                                else:
+                                    icon = "🔴 Yes" if val == 1 else "🟢 No"
+                                st.metric(label, icon)
+                            else:
+                                st.metric(label, "N/A")
+        else:
+            st.warning("No students match the selected filters.")
 
     # ========================================================================
     # RISK ANALYSIS PAGE
@@ -823,8 +1050,7 @@ class DashboardApp:
     def show_cluster_analysis(self):
         st.header("🎯 Cluster Analysis")
 
-        cluster_cols = [col for col in self.master_df.columns if col.startswith('cluster_')]
-        if not cluster_cols:
+        if self.cluster_data is None or len(self.cluster_data) == 0:
             st.warning("No cluster data available. Run unsupervised learning notebook first.")
             # Show figure if exists
             fig_path = FIGURES_DIR / 'cluster_profiles.png'
@@ -832,18 +1058,99 @@ class DashboardApp:
                 st.image(str(fig_path), caption="Student Cluster Profiles")
             return
 
-        cluster_col = st.selectbox("Clustering Method", cluster_cols)
-        n_clusters = self.master_df[cluster_col].nunique()
-        st.info(f"📊 **{n_clusters} clusters** identified")
+        # Merge cluster data with master data for analysis
+        cluster_df = self.cluster_data.copy()
+        if self.master_df is not None:
+            cluster_df = cluster_df.merge(
+                self.master_df[['student_id'] + [c for c in self.master_df.columns
+                                                  if c in ['final_cgpa', 'first_year_struggle',
+                                                          'has_ajc_case', 'major_success',
+                                                          'extended_graduation', 'Gender', 'math_track']]],
+                on='student_id', how='left'
+            )
+
+        n_clusters = cluster_df['cluster'].nunique()
+        cluster_names = cluster_df['cluster_name'].unique().tolist()
+
+        st.info(f"📊 **{n_clusters} student clusters** identified: {', '.join(cluster_names)}")
+
+        # Cluster distribution
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("Cluster Distribution")
+            cluster_counts = cluster_df['cluster_name'].value_counts()
+            fig = px.pie(values=cluster_counts.values, names=cluster_counts.index,
+                        color_discrete_sequence=['#27ae60', '#f39c12', '#e74c3c', '#3498db'],
+                        title="Students by Cluster")
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            st.subheader("Cluster Sizes")
+            fig = px.bar(x=cluster_counts.index, y=cluster_counts.values,
+                        color=cluster_counts.values, color_continuous_scale='Blues',
+                        labels={'x': 'Cluster', 'y': 'Number of Students'},
+                        title="Students per Cluster")
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Cluster profiles with outcomes
+        st.markdown("---")
+        st.subheader("Cluster Profiles")
 
         agg_dict = {'student_id': 'count'}
-        for col in ['final_cgpa', 'first_year_struggle', 'has_ajc_case', 'major_success']:
-            if col in self.master_df.columns:
+        for col in ['final_cgpa', 'first_year_struggle', 'has_ajc_case', 'major_success', 'extended_graduation']:
+            if col in cluster_df.columns:
                 agg_dict[col] = 'mean'
 
-        summary = self.master_df.groupby(cluster_col).agg(agg_dict).round(3)
-        summary = summary.rename(columns={'student_id': 'Count'})
+        summary = cluster_df.groupby('cluster_name').agg(agg_dict).round(3)
+        summary = summary.rename(columns={
+            'student_id': 'Count',
+            'final_cgpa': 'Avg CGPA',
+            'first_year_struggle': 'Struggle Rate',
+            'has_ajc_case': 'AJC Rate',
+            'major_success': 'Success Rate',
+            'extended_graduation': 'Extended Grad Rate'
+        })
         st.dataframe(summary, use_container_width=True)
+
+        # PCA visualization if available
+        if 'pca_1' in cluster_df.columns and 'pca_2' in cluster_df.columns:
+            st.markdown("---")
+            st.subheader("PCA Cluster Visualization")
+
+            fig = px.scatter(cluster_df, x='pca_1', y='pca_2', color='cluster_name',
+                           title="Student Clusters in PCA Space",
+                           labels={'pca_1': 'Principal Component 1', 'pca_2': 'Principal Component 2'},
+                           color_discrete_sequence=['#27ae60', '#f39c12', '#e74c3c', '#3498db'],
+                           opacity=0.6)
+            fig.update_layout(height=500)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Show saved figures
+        st.markdown("---")
+        st.subheader("Cluster Analysis Figures")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            fig_path = FIGURES_DIR / 'cluster_profiles.png'
+            if fig_path.exists():
+                st.image(str(fig_path), caption="Cluster Feature Profiles (Heatmap)")
+
+        with col2:
+            fig_path = FIGURES_DIR / 'outcomes_by_cluster.png'
+            if fig_path.exists():
+                st.image(str(fig_path), caption="Outcome Rates by Cluster")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            fig_path = FIGURES_DIR / 'pca_visualization.png'
+            if fig_path.exists():
+                st.image(str(fig_path), caption="PCA Visualization")
+
+        with col2:
+            fig_path = FIGURES_DIR / 'tsne_visualization.png'
+            if fig_path.exists():
+                st.image(str(fig_path), caption="t-SNE Visualization")
 
     # ========================================================================
     # COHORT ANALYSIS PAGE
@@ -924,72 +1231,353 @@ class DashboardApp:
     # ========================================================================
     # PREDICTIONS PAGE
     # ========================================================================
+    def _display_risk_gauge(self, title, value, thresholds=(0.30, 0.60)):
+        """Display a risk gauge visualization"""
+        low, high = thresholds
+
+        if value > high:
+            color, level = "#e74c3c", "HIGH"
+        elif value > low:
+            color, level = "#f39c12", "MEDIUM"
+        else:
+            color, level = "#27ae60", "LOW"
+
+        st.markdown(f"### {title}")
+        st.markdown(f"**{level}**: {value*100:.0f}%")
+
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=value * 100,
+            number={'suffix': '%'},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': color},
+                'steps': [
+                    {'range': [0, low*100], 'color': '#d4edda'},
+                    {'range': [low*100, high*100], 'color': '#fff3cd'},
+                    {'range': [high*100, 100], 'color': '#f8d7da'}
+                ],
+                'threshold': {
+                    'line': {'color': "black", 'width': 2},
+                    'thickness': 0.75,
+                    'value': value * 100
+                }
+            }
+        ))
+        fig.update_layout(height=200, margin=dict(t=20, b=20, l=30, r=30))
+        st.plotly_chart(fig, use_container_width=True)
+
+    def _create_feature_vector(self, gender, is_international, needs_aid, intended_major,
+                                 math_track, hs_math, hs_english, hs_science, hs_aggregate):
+        """Create feature vector matching the trained model's expected input"""
+        # Map categorical values to binary features matching training data
+        feature_dict = {
+            'gender_male': 1 if gender == 'Male' else 0,
+            'is_international': 1 if is_international else 0,
+            'needs_financial_aid': 1 if needs_aid else 0,
+            'disadvantaged_background': 0,  # Default
+            'intended_cs': 1 if intended_major == 'Computer Science' else 0,
+            'intended_engineering': 1 if intended_major == 'Engineering' else 0,
+            'intended_business': 1 if intended_major == 'Business Administration' else 0,
+            'intended_mis': 1 if intended_major == 'Management Information Systems' else 0,
+            'exam_wassce': 1,  # Default to WASSCE
+            'exam_ib': 0,
+            'exam_alevel': 0,
+            'has_previous_application': 0,
+            'hs_mathematics': hs_math,
+            'hs_english_language': hs_english,
+            'hs_best_science': hs_science,
+            'hs_aggregate_score': hs_aggregate,
+            'has_elective_math': 1 if math_track == 'Calculus' else 0
+        }
+        return feature_dict
+
     def show_predictions(self):
         st.header("🔮 Risk Prediction Tool")
 
-        st.markdown("""
-        <div class="warning-box">
-        <b>Disclaimer:</b> This is a simplified prediction tool for demonstration.
-        Actual predictions should use the trained models with proper feature engineering.
-        </div>
-        """, unsafe_allow_html=True)
+        # Check if real models are available
+        has_real_models = bool(self.trained_models)
+
+        # Toggle between ML models and heuristics
+        col_toggle1, col_toggle2 = st.columns([3, 1])
+        with col_toggle1:
+            st.markdown("**Prediction Method:**")
+        with col_toggle2:
+            use_heuristics = st.toggle("Use Demo Mode", value=True, help="Toggle between ML models and rule-based predictions")
+
+        if use_heuristics:
+            st.markdown("""
+            <div class="info-box">
+            <b>📊 Demo Mode (Rule-Based):</b> Predictions use simplified heuristic rules based on
+            research findings about student success factors.
+            </div>
+            """, unsafe_allow_html=True)
+        elif has_real_models:
+            st.markdown("""
+            <div class="insight-box">
+            <b>🤖 ML Model Mode:</b> Predictions are made using actual machine learning models
+            trained on historical Ashesi student data.
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Show model info
+            with st.expander("📊 Model Information"):
+                for model_key, model_info in self.trained_models.items():
+                    metadata = model_info.get('metadata', {})
+                    st.markdown(f"**{model_key.upper()}**: {metadata.get('model_name', 'Unknown')}")
+                    if 'metrics' in metadata:
+                        metrics = metadata['metrics']
+                        st.write(f"  - Recall: {metrics.get('recall', 0):.3f}")
+                        st.write(f"  - F2 Score: {metrics.get('f2', 0):.3f}")
+                        st.write(f"  - AUC: {metrics.get('auc', 0):.3f}")
+        else:
+            st.markdown("""
+            <div class="warning-box">
+            <b>Demo Mode:</b> No trained models found. Using rule-based predictions.
+            Run the supervised learning notebooks to train and save ML models.
+            </div>
+            """, unsafe_allow_html=True)
+            use_heuristics = True  # Force heuristics if no models
 
         with st.form("prediction_form"):
             st.subheader("Student Information")
             col1, col2 = st.columns(2)
 
             with col1:
-                hs_score = st.slider("High School Aggregate Score (0-100)", 0, 100, 75)
-                math_score = st.slider("Math Score (0-100)", 0, 100, 70)
-                y1_gpa = st.slider("Year 1 GPA (if available)", 0.0, 4.0, 3.0, 0.1)
+                gender = st.selectbox("Gender", ["Male", "Female"])
+                is_international = st.checkbox("International Student")
+                needs_aid = st.checkbox("Needs Financial Aid")
 
             with col2:
                 math_track = st.selectbox("Math Track", ["Calculus", "Pre-Calculus", "College Algebra"])
-                major = st.selectbox("Intended Major", ["Computer Science", "Business Administration",
-                                                        "Engineering", "Management Information Systems"])
-                has_y1_data = st.checkbox("Has Year 1 Data", value=True)
+                intended_major = st.selectbox("Intended Major", [
+                    "Computer Science", "Business Administration",
+                    "Engineering", "Management Information Systems", "Other"
+                ])
 
-            submitted = st.form_submit_button("🔮 Calculate Risk")
+            st.subheader("High School Scores (0-100)")
+            col3, col4, col5, col6 = st.columns(4)
+
+            with col3:
+                hs_math = st.slider("Math Score", 0, 100, 70)
+            with col4:
+                hs_english = st.slider("English Score", 0, 100, 70)
+            with col5:
+                hs_science = st.slider("Best Science", 0, 100, 70)
+            with col6:
+                hs_aggregate = st.slider("Aggregate Score", 0, 100, 75)
+
+            submitted = st.form_submit_button("🔮 Calculate Risk", type="primary")
 
         if submitted:
-            # Simple risk calculation
-            base_risk = (100 - hs_score) / 100 * 0.3 + (100 - math_score) / 100 * 0.3
+            # Create feature dictionary
+            features = self._create_feature_vector(
+                gender, is_international, needs_aid, intended_major,
+                math_track, hs_math, hs_english, hs_science, hs_aggregate
+            )
 
-            if has_y1_data:
-                gpa_risk = max(0, (3.0 - y1_gpa) / 3.0) * 0.4
-                base_risk = base_risk * 0.4 + gpa_risk
+            # Use heuristics if toggle is on, or if no models available
+            if use_heuristics or not has_real_models:
+                # Rule-based heuristic predictions
+                base_risk = (100 - hs_math) / 100 * 0.3 + (100 - hs_aggregate) / 100 * 0.3
 
-            if math_track == "College Algebra":
-                base_risk += 0.1
-            elif math_track == "Pre-Calculus":
-                base_risk += 0.05
+                if math_track == "College Algebra":
+                    base_risk += 0.1
+                elif math_track == "Pre-Calculus":
+                    base_risk += 0.05
 
-            if major in ["Computer Science", "Engineering"] and math_track == "College Algebra":
-                base_risk += 0.05
+                if intended_major in ["Computer Science", "Engineering"] and math_track == "College Algebra":
+                    base_risk += 0.05
 
-            struggle_risk = min(base_risk * 100, 95)
-            success_prob = max(100 - struggle_risk * 1.2, 5)
+                if needs_aid:
+                    base_risk += 0.03
+
+                struggle_risk = min(base_risk, 0.95)
+                ajc_risk = min(base_risk * 0.25, 0.40)
+                success_prob = max(1 - struggle_risk * 1.2, 0.05)
+                ext_risk = min(struggle_risk * 0.7, 0.85)
+                prediction_method = "Demo (Rule-Based)"
+
+            elif 'rq1_struggle' in self.trained_models:
+                # Use ML models
+                feature_df = pd.DataFrame([features])
+
+                # Get model components
+                rq1_info = self.trained_models['rq1_struggle']
+                model = rq1_info['model']
+                preprocessor = rq1_info['preprocessor']
+                expected_features = rq1_info['metadata'].get('features', list(features.keys()))
+
+                # Ensure correct feature order
+                feature_df = feature_df.reindex(columns=expected_features, fill_value=0)
+
+                # Preprocess
+                if preprocessor:
+                    X_processed = preprocessor.transform(feature_df)
+                else:
+                    X_processed = feature_df.values
+
+                # Predict
+                struggle_prob = model.predict_proba(X_processed)[0, 1]
+                struggle_risk = float(struggle_prob)
+
+                # AJC prediction if model available
+                if 'rq2_ajc' in self.trained_models:
+                    rq2_info = self.trained_models['rq2_ajc']
+                    model2 = rq2_info['model']
+                    preprocessor2 = rq2_info['preprocessor']
+
+                    if preprocessor2:
+                        X_processed2 = preprocessor2.transform(feature_df)
+                    else:
+                        X_processed2 = feature_df.values
+
+                    ajc_risk = float(model2.predict_proba(X_processed2)[0, 1])
+                else:
+                    ajc_risk = struggle_risk * 0.25
+
+                # Success probability - derive from struggle risk
+                # (RQ3 model requires Y1+Y2 data which we don't have in admission form)
+                # Use inverse relationship: low struggle = high success
+                success_prob = max(1 - struggle_risk * 1.3, 0.10)
+
+                # Adjust based on math track and scores
+                if math_track == "Calculus":
+                    success_prob = min(success_prob + 0.10, 0.95)
+                elif math_track == "College Algebra":
+                    success_prob = max(success_prob - 0.08, 0.10)
+
+                if hs_math >= 80:
+                    success_prob = min(success_prob + 0.05, 0.95)
+                elif hs_math < 50:
+                    success_prob = max(success_prob - 0.10, 0.10)
+
+                # Extended graduation risk - derive from struggle risk
+                # (RQ9 model requires Y1+Y2 data which we don't have)
+                ext_risk = min(struggle_risk * 0.8, 0.85)
+
+                # Adjust based on factors
+                if math_track == "College Algebra":
+                    ext_risk = min(ext_risk + 0.05, 0.85)
+                if needs_aid:
+                    ext_risk = min(ext_risk + 0.03, 0.85)
+                if hs_aggregate < 60:
+                    ext_risk = min(ext_risk + 0.08, 0.85)
+
+                prediction_method = "ML Model"
+            else:
+                # Fallback to heuristic
+                base_risk = (100 - hs_math) / 100 * 0.3 + (100 - hs_aggregate) / 100 * 0.3
+                struggle_risk = min(base_risk, 0.95)
+                ajc_risk = min(base_risk * 0.25, 0.40)
+                success_prob = max(1 - struggle_risk * 1.2, 0.05)
+                ext_risk = min(struggle_risk * 0.7, 0.85)
+                prediction_method = "Demo (Rule-Based)"
 
             st.markdown("---")
-            st.subheader("Prediction Results")
+            st.subheader("📊 Prediction Results")
 
-            col1, col2, col3 = st.columns(3)
+            # Show prediction method
+            st.caption(f"🤖 Prediction Method: **{prediction_method}**")
+
+            # Display gauges
+            col1, col2 = st.columns(2)
+
             with col1:
-                color = "🔴" if struggle_risk > 50 else "🟡" if struggle_risk > 25 else "🟢"
-                st.metric(f"{color} Struggle Risk", f"{struggle_risk:.0f}%")
-            with col2:
-                color = "🟢" if success_prob > 70 else "🟡" if success_prob > 50 else "🔴"
-                st.metric(f"{color} Success Probability", f"{success_prob:.0f}%")
-            with col3:
-                ext_risk = min(struggle_risk * 0.7, 85)
-                color = "🔴" if ext_risk > 40 else "🟡" if ext_risk > 20 else "🟢"
-                st.metric(f"{color} Extended Grad Risk", f"{ext_risk:.0f}%")
+                self._display_risk_gauge("First Year Struggle Risk", struggle_risk, (0.25, 0.50))
 
-            if struggle_risk > 40:
+            with col2:
+                self._display_risk_gauge("Extended Graduation Risk", ext_risk, (0.20, 0.40))
+
+            col3, col4 = st.columns(2)
+
+            with col3:
+                self._display_risk_gauge("AJC Case Risk", ajc_risk, (0.10, 0.25))
+
+            with col4:
+                # Success probability gauge (inverted colors - high is good)
+                st.markdown("### Success Probability")
+                if success_prob > 0.70:
+                    color, level = "#27ae60", "HIGH"
+                elif success_prob > 0.50:
+                    color, level = "#f39c12", "MEDIUM"
+                else:
+                    color, level = "#e74c3c", "LOW"
+
+                st.markdown(f"**{level}**: {success_prob*100:.0f}%")
+
+                fig = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=success_prob * 100,
+                    number={'suffix': '%'},
+                    gauge={
+                        'axis': {'range': [0, 100]},
+                        'bar': {'color': color},
+                        'steps': [
+                            {'range': [0, 50], 'color': '#f8d7da'},
+                            {'range': [50, 70], 'color': '#fff3cd'},
+                            {'range': [70, 100], 'color': '#d4edda'}
+                        ],
+                        'threshold': {
+                            'line': {'color': "black", 'width': 2},
+                            'thickness': 0.75,
+                            'value': success_prob * 100
+                        }
+                    }
+                ))
+                fig.update_layout(height=200, margin=dict(t=20, b=20, l=30, r=30))
+                st.plotly_chart(fig, use_container_width=True)
+
+            # Recommendations
+            st.markdown("---")
+            st.subheader("💡 Recommendations")
+
+            recs = []
+
+            if struggle_risk > 0.40:
+                recs.append("🎯 **Academic Support**: Enroll in tutoring and study skills programs")
+
+            if math_track == "College Algebra":
+                recs.append("📐 **Math Support**: Consider math tutoring or bridge courses")
+
+            if intended_major in ["Computer Science", "Engineering"] and math_track != "Calculus":
+                recs.append("💻 **STEM Mentorship**: Connect with peer mentors in your field")
+
+            if ext_risk > 0.30:
+                recs.append("📅 **Academic Planning**: Create detailed graduation timeline with advisor")
+
+            if ajc_risk > 0.15:
+                recs.append("📚 **Academic Integrity**: Review honor code and citation practices")
+
+            if not recs:
+                recs.append("✅ **Low Risk Profile**: Standard support should be sufficient")
+
+            for rec in recs:
+                st.markdown(f"- {rec}")
+
+            # Overall assessment
+            overall_risk = (struggle_risk + ext_risk + ajc_risk) / 3
+
+            if overall_risk > 0.40:
                 st.markdown("""
                 <div class="warning-box">
-                <b>Recommendation:</b> Consider early intervention - academic advising,
-                tutoring support, and regular check-ins with faculty advisor.
+                <b>⚠️ High Risk Alert:</b> This student profile shows elevated risk indicators.
+                Consider early intervention including academic advising, tutoring support,
+                and regular check-ins with faculty advisor.
+                </div>
+                """, unsafe_allow_html=True)
+            elif overall_risk > 0.25:
+                st.markdown("""
+                <div class="info-box">
+                <b>ℹ️ Moderate Risk:</b> Some risk factors present.
+                Proactive support recommended to ensure student success.
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div class="insight-box">
+                <b>✅ Low Risk:</b> This student profile shows favorable indicators.
+                Standard academic support should be sufficient.
                 </div>
                 """, unsafe_allow_html=True)
 

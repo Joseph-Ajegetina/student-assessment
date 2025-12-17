@@ -1,0 +1,37 @@
+{
+  "model_name": "XGBoost",
+  "features": [
+    "gender_male",
+    "is_international",
+    "needs_financial_aid",
+    "disadvantaged_background",
+    "intended_cs",
+    "intended_engineering",
+    "intended_business",
+    "intended_mis",
+    "exam_wassce",
+    "exam_ib",
+    "exam_alevel",
+    "has_previous_application",
+    "hs_mathematics",
+    "hs_english_language",
+    "hs_best_science",
+    "hs_aggregate_score",
+    "has_elective_math"
+  ],
+  "target": "target_y1_struggle",
+  "metrics": {
+    "accuracy": 0.5161290322580645,
+    "precision": 0.11375661375661375,
+    "recall": 0.6323529411764706,
+    "f1": 0.19282511210762332,
+    "f2": 0.33076923076923076,
+    "auc": 0.5890184476157326
+  },
+  "training_info": {
+    "train_size": 2974,
+    "test_size": 744,
+    "class_balance": 0.09117805271651426,
+    "used_smote": true
+  }
+}
